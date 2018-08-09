@@ -111,6 +111,7 @@ const Split = (ids, options = {}) => {
     let clientAxis
     let position
     let elements
+    let currentColumn
 
     // All DOM elements in the split should have a common parent. We can grab
     // the first elements parent and hope users read the docs because the
@@ -119,13 +120,21 @@ const Split = (ids, options = {}) => {
     const parentFlexDirection = global.getComputedStyle(parent).flexDirection
 
     // Set default options.sizes to equal percentages of the parent element.
-    const sizes = getOption(options, 'sizes') || ids.map(() => 100 / ids.length)
+    // const sizes = getOption(options, 'sizes') || ids.map(() => 100 / ids.length)
 
     // Standardize minSize to an array if it isn't already. This allows minSize
     // to be passed as a number.
+
+    // added by radd
+    const totalColumns = getOption(options, 'totalColumns', 12)
+    const columns = getOption(options, 'columns', [1, 1])
+    const minColumn = getOption(options, 'minColumn', 1)
+    const sizes = columns.map((c) => { return 100 * c / totalColumns; })
+    currentColumn = columns[0]
+
     const minSize = getOption(options, 'minSize', 100)
     const minSizes = Array.isArray(minSize) ? minSize : ids.map(() => minSize)
-    const gutterSize = getOption(options, 'gutterSize', 10)
+    // const gutterSize = getOption(options, 'gutterSize', 10)
     const snapOffset = getOption(options, 'snapOffset', 30)
     const direction = getOption(options, 'direction', HORIZONTAL)
     const cursor = getOption(options, 'cursor', direction === HORIZONTAL ? 'ew-resize' : 'ns-resize')
@@ -197,6 +206,18 @@ const Split = (ids, options = {}) => {
         setElementSize(b.element, b.size, this.bGutterSize)
     }
 
+    // added by radd
+    function getRatio(offset) {
+        const l = elements[this.a];
+        const r = elements[this.b];
+        const percentage = l.size + r.size;
+		
+		return {
+            left: (offset / this.size) * percentage,
+            right: (percentage - ((offset / this.size) * percentage))
+        };
+    }
+
     // drag, where all the magic happens. The logic is really quite simple:
     //
     // 1. Ignore if the pair is not dragging.
@@ -227,21 +248,40 @@ const Split = (ids, options = {}) => {
             offset = e[clientAxis] - this.start
         }
 
+        const columnSize = this.size/totalColumns;
+        const md = offset%columnSize;
+        currentColumn = (offset-md)/columnSize;
+
+        if(currentColumn < minColumn) {
+            currentColumn = minColumn;
+            offset = currentColumn*columnSize;
+        } else if (currentColumn >= totalColumns - minColumn) {
+            currentColumn = totalColumns - minColumn;
+            offset = currentColumn*columnSize;
+        } else if (this.startColumn != currentColumn && md <= snapOffset) {
+            offset = currentColumn*columnSize;
+            this.startColumn = this.startColumn || currentColumn;
+        } else if (this.startColumn != currentColumn+1 && columnSize-md <= snapOffset) {
+            currentColumn++;
+            offset = currentColumn*columnSize;
+            this.startColumn = this.startColumn || currentColumn;
+        }
+
         // If within snapOffset of min or max, set offset to min or max.
         // snapOffset buffers a.minSize and b.minSize, so logic is opposite for both.
         // Include the appropriate gutter sizes to prevent overflows.
-        if (offset <= a.minSize + snapOffset + this.aGutterSize) {
-            offset = a.minSize + this.aGutterSize
-        } else if (offset >= this.size - (b.minSize + snapOffset + this.bGutterSize)) {
-            offset = this.size - (b.minSize + this.bGutterSize)
-        }
+        // if (offset <= a.minSize + snapOffset + this.aGutterSize) {
+        //     offset = a.minSize + this.aGutterSize
+        // } else if (offset >= this.size - (b.minSize + snapOffset + this.bGutterSize)) {
+        //     offset = this.size - (b.minSize + this.bGutterSize)
+        // }
 
         // Actually adjust the size.
-        adjust.call(this, offset)
+        // adjust.call(this, offset)
 
         // Call the drag callback continously. Don't do anything too intensive
         // in this callback.
-        getOption(options, 'onDrag', NOOP)()
+        getOption(options, 'onDrag', NOOP)(null, getRatio.call(this, offset))
     }
 
     // Cache some important sizes when drag starts, so we don't have to do that
@@ -275,8 +315,14 @@ const Split = (ids, options = {}) => {
         const a = elements[self.a].element
         const b = elements[self.b].element
 
+        // added by radd
+        self.startColumn = null;
+
         if (self.dragging) {
-            getOption(options, 'onDragEnd', NOOP)()
+            getOption(options, 'onDragEnd', NOOP)({
+                left: currentColumn,
+                right: totalColumns-currentColumn
+            })
         }
 
         self.dragging = false
@@ -410,19 +456,21 @@ const Split = (ids, options = {}) => {
                 isLast: (i === ids.length - 1),
                 direction,
                 parent,
+                aGutterSize: 0,
+                bGutterSize: 0,
             }
 
             // For first and last pairs, first and last gutter width is half.
-            pair.aGutterSize = gutterSize
-            pair.bGutterSize = gutterSize
+            // pair.aGutterSize = gutterSize
+            // pair.bGutterSize = gutterSize
 
-            if (pair.isFirst) {
-                pair.aGutterSize = gutterSize / 2
-            }
+            // if (pair.isFirst) {
+            //     pair.aGutterSize = gutterSize / 2
+            // }
 
-            if (pair.isLast) {
-                pair.bGutterSize = gutterSize / 2
-            }
+            // if (pair.isLast) {
+            //     pair.bGutterSize = gutterSize / 2
+            // }
 
             // if the parent has a reverse flex-direction, switch the pair elements.
             if (parentFlexDirection === 'row-reverse' || parentFlexDirection === 'column-reverse') {
@@ -441,12 +489,13 @@ const Split = (ids, options = {}) => {
             // Create gutter elements for each pair.
             if (i > 0) {
                 const gutterElement = gutter(i, direction)
-                setGutterSize(gutterElement, gutterSize)
+                // setGutterSize(gutterElement, gutterSize)
 
                 gutterElement[addEventListener]('mousedown', startDragging.bind(pair))
                 gutterElement[addEventListener]('touchstart', startDragging.bind(pair))
 
-                parent.insertBefore(gutterElement, element.element)
+                // parent.insertBefore(gutterElement, element.element)
+                element.element.insertBefore(gutterElement, element.element.childNodes[0]);
 
                 pair.gutter = gutterElement
             }
@@ -454,11 +503,11 @@ const Split = (ids, options = {}) => {
 
         // Set the element size to our determined size.
         // Half-size gutters for first and last elements.
-        if (i === 0 || i === ids.length - 1) {
-            setElementSize(element.element, element.size, gutterSize / 2)
-        } else {
-            setElementSize(element.element, element.size, gutterSize)
-        }
+        // if (i === 0 || i === ids.length - 1) {
+        //     setElementSize(element.element, element.size, gutterSize / 2)
+        // } else {
+        //     setElementSize(element.element, element.size, gutterSize)
+        // }
 
         const computedSize = element.element[getBoundingClientRect]()[dimension]
 
