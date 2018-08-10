@@ -136,8 +136,8 @@ const Split = (ids, options = {}) => {
     const minSizes = Array.isArray(minSize) ? minSize : ids.map(() => minSize)
     // const gutterSize = getOption(options, 'gutterSize', 10)
     const snapOffset = getOption(options, 'snapOffset', 30)
-    const direction = getOption(options, 'direction', HORIZONTAL)
-    const cursor = getOption(options, 'cursor', direction === HORIZONTAL ? 'ew-resize' : 'ns-resize')
+    let direction = getOption(options, 'direction', HORIZONTAL)
+    let cursor = getOption(options, 'cursor', direction === HORIZONTAL ? 'ew-resize' : 'ns-resize')
     const gutter = getOption(options, 'gutter', defaultGutterFn)
     const elementStyle = getOption(options, 'elementStyle', defaultElementStyleFn)
     const gutterStyle = getOption(options, 'gutterStyle', defaultGutterStyleFn)
@@ -248,36 +248,38 @@ const Split = (ids, options = {}) => {
             offset = e[clientAxis] - this.start
         }
 
-        const columnSize = this.size/totalColumns;
-        const md = offset%columnSize;
-        currentColumn = (offset-md)/columnSize;
+        if (direction === HORIZONTAL) {
+            const columnSize = this.size/totalColumns;
+            const md = offset%columnSize;
+            currentColumn = (offset-md)/columnSize;
+    
+            if(currentColumn < minColumn) {
+                currentColumn = minColumn;
+                offset = currentColumn*columnSize;
+            } else if (currentColumn >= totalColumns - minColumn) {
+                currentColumn = totalColumns - minColumn;
+                offset = currentColumn*columnSize;
+            } else if (this.startColumn != currentColumn && md <= snapOffset) {
+                offset = currentColumn*columnSize;
+                this.startColumn = this.startColumn || currentColumn;
+            } else if (this.startColumn != currentColumn+1 && columnSize-md <= snapOffset) {
+                currentColumn++;
+                offset = currentColumn*columnSize;
+                this.startColumn = this.startColumn || currentColumn;
+            }
+        } else {
+            // If within snapOffset of min or max, set offset to min or max.
+            // snapOffset buffers a.minSize and b.minSize, so logic is opposite for both.
+            // Include the appropriate gutter sizes to prevent overflows.
+            if (offset <= a.minSize + snapOffset + this.aGutterSize) {
+                 offset = a.minSize + this.aGutterSize
+            } else if (offset >= this.size - (b.minSize + snapOffset + this.bGutterSize)) {
+                 offset = this.size - (b.minSize + this.bGutterSize)
+            }
 
-        if(currentColumn < minColumn) {
-            currentColumn = minColumn;
-            offset = currentColumn*columnSize;
-        } else if (currentColumn >= totalColumns - minColumn) {
-            currentColumn = totalColumns - minColumn;
-            offset = currentColumn*columnSize;
-        } else if (this.startColumn != currentColumn && md <= snapOffset) {
-            offset = currentColumn*columnSize;
-            this.startColumn = this.startColumn || currentColumn;
-        } else if (this.startColumn != currentColumn+1 && columnSize-md <= snapOffset) {
-            currentColumn++;
-            offset = currentColumn*columnSize;
-            this.startColumn = this.startColumn || currentColumn;
+            // Actually adjust the size.
+            adjust.call(this, offset)
         }
-
-        // If within snapOffset of min or max, set offset to min or max.
-        // snapOffset buffers a.minSize and b.minSize, so logic is opposite for both.
-        // Include the appropriate gutter sizes to prevent overflows.
-        // if (offset <= a.minSize + snapOffset + this.aGutterSize) {
-        //     offset = a.minSize + this.aGutterSize
-        // } else if (offset >= this.size - (b.minSize + snapOffset + this.bGutterSize)) {
-        //     offset = this.size - (b.minSize + this.bGutterSize)
-        // }
-
-        // Actually adjust the size.
-        // adjust.call(this, offset)
 
         // Call the drag callback continously. Don't do anything too intensive
         // in this callback.
@@ -540,6 +542,25 @@ const Split = (ids, options = {}) => {
         })
     }
 
+    function setDirection (newDirection) {
+        direction = newDirection;
+        
+        if (direction === HORIZONTAL) {
+            cursor = 'ew-resize'
+            dimension = 'width'
+            clientAxis = 'clientX'
+            position = 'left'
+        } else if (direction === 'vertical') {
+            cursor = 'ns-resize'
+            dimension = 'height'
+            clientAxis = 'clientY'
+            position = 'top'
+        }
+
+        pairs[0].gutter.className = `gutter gutter-${newDirection}`;
+        pairs[0].direction = newDirection;
+    }
+
     function destroy () {
         pairs.forEach(pair => {
             pair.parent.removeChild(pair.gutter)
@@ -552,11 +573,13 @@ const Split = (ids, options = {}) => {
         return {
             setSizes,
             destroy,
+            setDirection,
         }
     }
 
     return {
         setSizes,
+        setDirection,
         getSizes () {
             return elements.map(element => element.size)
         },
